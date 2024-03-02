@@ -3,7 +3,7 @@ from django.db import models
 from django.conf import settings
 from django.dispatch import receiver
 from django.shortcuts import get_object_or_404
-
+from . import validators
 # Create your models here.
 
 
@@ -11,6 +11,11 @@ def category_icon_upload_path(instance, filename):
     return f"category/{instance.id}/category_icon/{filename}"
 
 
+def server_icon_upload_path(instance, filename):
+    return f"server/{instance.id}/server_icon/{filename}"
+
+def server_banner_upload_path(instance, filename):
+    return f"server/{instance.id}/server_banner/{filename}"
 class Category(models.Model):
     name = models.CharField(max_length=30)
     description = models.TextField(blank=True, null=True)
@@ -33,7 +38,6 @@ class Category(models.Model):
     
         
     
-
     def __str__(self):
         return self.name
 
@@ -53,10 +57,26 @@ class Channel(models.Model):
     owner = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete= models.CASCADE, related_name="channel_owner")
     topic = models.CharField(max_length=100)
     server = models.ForeignKey(Server, on_delete=models.CASCADE, related_name="channel_server")
+    banner = models.ImageField(upload_to=server_banner_upload_path, null=True, blank=True, validators=[validators.validate_file_extension])
+    icon = models.ImageField(upload_to=server_icon_upload_path, null=True, blank=True, validators=[validators.validate_icon_image_size, validators.validate_file_extension])
 
     def save(self, *args, **kwargs):
-        self.name = self.name.lower()
-        super(Channel, self).save(*args, **kwargs)
+        if self.id:
+            existing = get_object_or_404(Server, id=self.id)
+            if existing.icon != self.icon:
+                existing.icon.delete(save=False) #prevent the models to be saved on delete
+            if existing.banner != self.banner:
+                existing.banner.delete(save=False)
+        super(Server, self).save(*args, **kwargs)
+
+    @receiver(models.signals.pre_delete, sender="server.Server")
+    def category_delete_files(sender, instance, **kwargs):
+        for field in instance._meta.fields:
+            if field.name == "icon" or field.name == "banner":
+                file = getattr(instance, field.name)
+                if file:
+                    file.delete(save=False)
+    
 
     def __str__(self):
         return self.name
